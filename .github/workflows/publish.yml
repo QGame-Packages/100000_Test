@@ -2,30 +2,57 @@ name: ET Package
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - master
+    tags:
+      - 'v*'
   release:
     types: [created]
 
 jobs:
-  build:
+  versioning:
+    name: Auto Versioning
     runs-on: ubuntu-latest
+    permissions:  # 新增权限声明
+      contents: write
+    outputs:
+      new_version: ${{ steps.set_version.outputs.NEW_VERSION }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
         with:
-          node-version: 16
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}  # 显式传递写入凭证
+          persist-credentials: true  # 保持认证信息
 
-  publish-gpr:
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      packages: write
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 16
-          registry-url: https://npm.pkg.github.com/
-      - run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{secrets.GITHUB_TOKEN}}
+      - name: Configure Git Identity
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+
+      - name: Get latest tag
+        id: get_tag
+        run: |
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "CURRENT_VERSION=${LATEST_TAG#v}" >> $GITHUB_OUTPUT
+
+      - name: Increment patch version
+        id: set_version
+        run: |
+          IFS='.' read -ra VER <<< "${{ steps.get_tag.outputs.CURRENT_VERSION }}"
+          NEW_VERSION="${VER[0]}.${VER[1]}.$((VER[2] + 1))"
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
+          npm version $NEW_VERSION --no-git-tag-version
+
+      - name: Commit version change
+        run: |
+          git add package.json
+          git commit -m "chore: Auto bump version to ${{ steps.set_version.outputs.NEW_VERSION }} [skip ci]"
+          git push "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:master  # 使用认证URL
+
+      - name: Create and push tag
+        run: |
+          git tag -a v${{ steps.set_version.outputs.NEW_VERSION }} -m "Release v${{ steps.set_version.outputs.NEW_VERSION }}"
+          git push origin v${{ steps.set_version.outputs.NEW_VERSION }}
+
+  # build 和 publish-gpr 作业保持原样...
