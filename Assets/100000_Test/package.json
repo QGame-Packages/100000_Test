@@ -9,6 +9,13 @@
     "email": "452635860@qq.com",
     "url": "https://github.com/QGame-Packages/100000_Test"
   },
+    "repository": {
+    "type": "git",
+    "url": "https://github.com/QGame-Packages/100000_Test"
+  },
+    "publishConfig": {
+    "registry": "https://npm.pkg.github.com/@QGame-Packages"
+  }
   "dependencies": {
    // "com.unity.some-package": "1.2.3" // 其他依赖包
   }
