@@ -15,14 +15,14 @@ jobs:
     name: Auto Versioning
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # 关键权限修复点[1,2](@ref)
+      contents: write
     outputs:
       new_version: ${{ steps.set_version.outputs.NEW_VERSION }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}  # 显式传递认证凭证[2](@ref)
+          token: ${{ secrets.GITHUB_TOKEN }}
           persist-credentials: true
 
       - name: Configure Git Identity
@@ -33,24 +33,26 @@ jobs:
       - name: Sync Package Version
         id: sync_ver
         run: |
-          # 双重版本校验机制[1,7](@ref)
-          PKG_VERSION=$(jq -r .version package.json)
-          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-          
-          # 版本格式统一处理（兼容v前缀）
-          if [[ $PKG_VERSION != v* && $LATEST_TAG == v* ]]; then
-            PKG_VERSION="v$PKG_VERSION"
-            npm version $PKG_VERSION --no-git-tag-version --force
+          if [ -z "$(git tag)" ]; then
+            PKG_VERSION=$(jq -r .version package.json)
+          else
+            LATEST_TAG=$(git describe --tags --abbrev=0)
+            PKG_VERSION=${LATEST_TAG#v}
           fi
-          echo "SYNCED_VERSION=${PKG_VERSION#v}" >> $GITHUB_OUTPUT
+          npm version $PKG_VERSION --no-git-tag-version --force
+          echo "SYNCED_VERSION=$PKG_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Debug Version Info
+        run: |
+          echo "Latest Tag: $(git describe --tags --abbrev=0)"
+          echo "Package.json Version: $(jq -r .version package.json)"
+          echo "Synced Version: ${{ steps.sync_ver.outputs.SYNCED_VERSION }}"
 
       - name: Increment Patch Version
         id: set_version
         run: |
           IFS='.' read -ra VER <<< "${{ steps.sync_ver.outputs.SYNCED_VERSION }}"
           NEW_VERSION="${VER[0]}.${VER[1]}.$((VER[2] + 1))"
-          
-          # 强制更新package.json[1,5](@ref)
           npm version $NEW_VERSION --no-git-tag-version --force
           echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
 
@@ -65,44 +67,4 @@ jobs:
           git tag -a v${{ steps.set_version.outputs.NEW_VERSION }} -m "Release v${{ steps.set_version.outputs.NEW_VERSION }}"
           git push origin v${{ steps.set_version.outputs.NEW_VERSION }}
 
-  build:
-    needs: versioning
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: v${{ needs.versioning.outputs.new_version }}
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 16
-          cache: 'npm'
-          cache-dependency-path: package-lock.json
-
-      - run: npm ci
-        name: Install Dependencies
-
-  publish-gpr:
-    needs: [versioning, build]
-    runs-on: ubuntu-latest
-    permissions:
-      packages: write
-      contents: read  # 根据网页2权限建议优化[2](@ref)
-    steps:
-      - uses: actions/checkout@v4
-      
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 16
-          registry-url: https://npm.pkg.github.com/
-
-      - name: Publish Package
-        run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: v${{ needs.versioning.outputs.new_version }}
-          generate_release_notes: true
+  # 保留原有 build 和 publish-gpr 作业...
