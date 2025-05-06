@@ -1,4 +1,8 @@
 name: ET Package
+uses: softprops/action-gh-release@v1
+  with:
+    tag_name: ${{ github.ref_version }}  # 使用动态生成的版本号
+    generate_release_notes: true
 
 on:
   workflow_dispatch:
