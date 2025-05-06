@@ -4,58 +4,52 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - 'v*'  # 仅监听带版本号的标签推送
-    branches:
-      - master  # 同时监听master分支合并
+      - 'v*'  # 仅监听标签推送事件
 
 jobs:
-  version-control:
-    name: Version Control
+  version-validation:
+    name: Version Validation
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    outputs:
-      exact_version: ${{ steps.version_check.outputs.EXACT_VERSION }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0  # 获取完整提交历史
 
-      - name: Detect Exact Version
+      - name: Strict Version Check
         id: version_check
         run: |
-          # 精准获取当前package.json版本
+          # 获取标签版本（自动剥离v前缀）
+          TAG_VERSION=${GITHUB_REF#refs/tags/v}
+          
+          # 获取package.json版本
           PKG_VERSION=$(jq -r .version package.json)
           
-          # 验证标签与版本一致性
-          if [ -n "${{ github.ref_type == 'tag' }}" ]; then
-            TAG_VERSION=${GITHUB_REF#refs/tags/v}
-            if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
-              echo "Version mismatch! Tag:$TAG_VERSION vs Package:$PKG_VERSION" >&2
-              exit 1
-            fi
+          # 严格比较版本
+          if [[ "$TAG_VERSION" != "$PKG_VERSION" ]]; then
+            echo "::error::版本不匹配！标签版本: $TAG_VERSION, package.json版本: $PKG_VERSION"
+            echo "请执行以下命令修复："
+            echo "1. 更新package.json版本: npm version $TAG_VERSION --no-git-tag-version"
+            echo "2. 重新提交并推送标签"
+            exit 1
           fi
-          echo "EXACT_VERSION=$PKG_VERSION" >> $GITHUB_OUTPUT
+          
+          echo "版本校验通过: $TAG_VERSION"
 
   build:
-    needs: version-control
+    needs: version-validation
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: v${{ needs.version-control.outputs.exact_version }}
-
       - uses: actions/setup-node@v4
         with:
           node-version: 16
           cache: 'npm'
-          cache-dependency-path: package-lock.json
 
       - run: npm ci
       - run: npm run build
 
   publish:
-    needs: [version-control, build]
+    needs: [version-validation, build]
     runs-on: ubuntu-latest
     permissions:
       packages: write
@@ -67,19 +61,7 @@ jobs:
           node-version: 16
           registry-url: https://npm.pkg.github.com/
           
-      - name: Publish Package
-        run: |
-          npm config set @your-org:registry https://npm.pkg.github.com
-          npm publish --tag latest
+      - name: Publish to GitHub Packages
+        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Create Release
-        if: ${{ github.ref_type == 'tag' }}
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: v${{ needs.version-control.outputs.exact_version }}
-          generate_release_notes: true
-          files: |
-            package.json
-            dist/*.js
