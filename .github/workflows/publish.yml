@@ -1,44 +1,31 @@
-name: Publish Unity Package
+name: ET Package
 
 on:
-  push:
-    tags: ['v*']
+  workflow_dispatch:
+  release:
+    types: [created]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
-      # 提取标签版本号
-      - name: Set version
-        id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 16
 
-      # 构建Unity包
-      - name: Build with Unity
-        uses: game-ci/unity-builder@v2
+  publish-gpr:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 16
+          registry-url: https://npm.pkg.github.com/
+      - run: npm publish
         env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
-        with:
-          targetPlatform: StandaloneWindows
-          projectPath: ./YourProject
-
-      # 更新package.json版本
-      - name: Update package version
-        run: |
-          cd Build/YourPackage
-          jq --arg ver "${{ env.VERSION }}" '.version = $ver' package.json > tmp.json
-          mv tmp.json package.json
-
-      # 推送至UPM分支
-      - name: Push to UPM branch
-        uses: actions/github-script@v6
-        with:
-          script: |
-            github.rest.git.createRef({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              ref: 'refs/heads/upm',
-              sha: context.sha
-            })
+          NODE_AUTH_TOKEN: ${{secrets.GITHUB_TOKEN}}
