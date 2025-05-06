@@ -1,0 +1,22 @@
+name: Publish Unity Package
+on:
+  push:
+    tags:
+      - 'v*'  # 当推送v开头的标签时触发
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Git LFS
+        run: git lfs install
+      - name: Push to UPM Branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git checkout -b upm
+          git add .
+          git commit -m "Update package for UPM"
+          git push origin upm --force
