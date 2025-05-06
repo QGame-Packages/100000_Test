@@ -1,23 +1,20 @@
 {
-  "name": "cn.etetet.test_ddd",
-  "displayName": "test_ddd",
-  "version": "1.1.2",
-  "unity": "2022.3",
-  "category": "UI/YIUI",
-  "description": "YIUI 框架 >>> 文档: https://lib9kmxvq7k.feishu.cn/wiki/ES7Gwz4EAiVGKSkotY5cRbTznuh",
+  "name": "com.qyy.100000_Test",
+  "version": "1.0.0",
+  "displayName": "100000_Test",
+  "description": "Package description for Unity",
+  "unity": "2022.3.61f1",
   "author": {
-    "name": "YIYI",
-    "url": "https://github.com/LiShengYang-yiyi/YIUI/tree/YIUI-ET9.0"
+    "name": "qyy",
+    "url": "https://github.com/QGame-Packages/100000_Test"
   },
-  "repository": {
+    "repository": {
     "type": "git",
     "url": "https://github.com/QGame-Packages/100000_Test"
   },
-  "relatedPackages": {},
-  "dependencies": {
-
-  },
-  "publishConfig": {
+    "publishConfig": {
     "registry": "https://npm.pkg.github.com/@QGame-Packages"
+  }
+  "dependencies": {
   }
 }
