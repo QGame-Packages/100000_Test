@@ -2,30 +2,69 @@ name: ET Package
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - master
+    tags:
+      - 'v*'
   release:
     types: [created]
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 16
-
-  publish-gpr:
-    needs: build
+  versioning:
+    name: Auto Versioning
     runs-on: ubuntu-latest
     permissions:
-      packages: write
-      contents: read
+      contents: write
+    outputs:
+      new_version: ${{ steps.set_version.outputs.NEW_VERSION }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
         with:
-          node-version: 16
-          registry-url: https://npm.pkg.github.com/
-      - run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{secrets.GITHUB_TOKEN}}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: true
+
+      - name: Configure Git Identity
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+
+      - name: Sync Package Version
+        id: sync_ver
+        run: |
+          if [ -z "$(git tag)" ]; then
+            PKG_VERSION=$(jq -r .version package.json)
+          else
+            LATEST_TAG=$(git describe --tags --abbrev=0)
+            PKG_VERSION=${LATEST_TAG#v}
+          fi
+          npm version $PKG_VERSION --no-git-tag-version --force
+          echo "SYNCED_VERSION=$PKG_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Debug Version Info
+        run: |
+          echo "Latest Tag: $(git describe --tags --abbrev=0)"
+          echo "Package.json Version: $(jq -r .version package.json)"
+          echo "Synced Version: ${{ steps.sync_ver.outputs.SYNCED_VERSION }}"
+
+      - name: Increment Patch Version
+        id: set_version
+        run: |
+          IFS='.' read -ra VER <<< "${{ steps.sync_ver.outputs.SYNCED_VERSION }}"
+          NEW_VERSION="${VER[0]}.${VER[1]}.$((VER[2] + 1))"
+          npm version $NEW_VERSION --no-git-tag-version --force
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Commit Version Update
+        run: |
+          git add package.json
+          git commit -m "chore: Auto bump version to ${{ steps.set_version.outputs.NEW_VERSION }} [skip ci]"
+          git push "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:master
+
+      - name: Create Release Tag
+        run: |
+          git tag -a v${{ steps.set_version.outputs.NEW_VERSION }} -m "Release v${{ steps.set_version.outputs.NEW_VERSION }}"
+          git push origin v${{ steps.set_version.outputs.NEW_VERSION }}
+
+  # 保留原有 build 和 publish-gpr 作业...
