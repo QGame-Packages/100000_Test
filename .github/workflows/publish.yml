@@ -14,45 +14,95 @@ jobs:
   versioning:
     name: Auto Versioning
     runs-on: ubuntu-latest
-    permissions:  # 新增权限声明
-      contents: write
+    permissions:
+      contents: write  # 关键权限修复点[1,2](@ref)
     outputs:
       new_version: ${{ steps.set_version.outputs.NEW_VERSION }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}  # 显式传递写入凭证
-          persist-credentials: true  # 保持认证信息
+          token: ${{ secrets.GITHUB_TOKEN }}  # 显式传递认证凭证[2](@ref)
+          persist-credentials: true
 
       - name: Configure Git Identity
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
 
-      - name: Get latest tag
-        id: get_tag
+      - name: Sync Package Version
+        id: sync_ver
         run: |
+          # 双重版本校验机制[1,7](@ref)
+          PKG_VERSION=$(jq -r .version package.json)
           LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-          echo "CURRENT_VERSION=${LATEST_TAG#v}" >> $GITHUB_OUTPUT
+          
+          # 版本格式统一处理（兼容v前缀）
+          if [[ $PKG_VERSION != v* && $LATEST_TAG == v* ]]; then
+            PKG_VERSION="v$PKG_VERSION"
+            npm version $PKG_VERSION --no-git-tag-version --force
+          fi
+          echo "SYNCED_VERSION=${PKG_VERSION#v}" >> $GITHUB_OUTPUT
 
-      - name: Increment patch version
+      - name: Increment Patch Version
         id: set_version
         run: |
-          IFS='.' read -ra VER <<< "${{ steps.get_tag.outputs.CURRENT_VERSION }}"
+          IFS='.' read -ra VER <<< "${{ steps.sync_ver.outputs.SYNCED_VERSION }}"
           NEW_VERSION="${VER[0]}.${VER[1]}.$((VER[2] + 1))"
+          
+          # 强制更新package.json[1,5](@ref)
+          npm version $NEW_VERSION --no-git-tag-version --force
           echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
-          npm version $NEW_VERSION --no-git-tag-version
 
-      - name: Commit version change
+      - name: Commit Version Update
         run: |
           git add package.json
           git commit -m "chore: Auto bump version to ${{ steps.set_version.outputs.NEW_VERSION }} [skip ci]"
-          git push "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:master  # 使用认证URL
+          git push "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:master
 
-      - name: Create and push tag
+      - name: Create Release Tag
         run: |
           git tag -a v${{ steps.set_version.outputs.NEW_VERSION }} -m "Release v${{ steps.set_version.outputs.NEW_VERSION }}"
           git push origin v${{ steps.set_version.outputs.NEW_VERSION }}
 
-  # build 和 publish-gpr 作业保持原样...
+  build:
+    needs: versioning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.versioning.outputs.new_version }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 16
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci
+        name: Install Dependencies
+
+  publish-gpr:
+    needs: [versioning, build]
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read  # 根据网页2权限建议优化[2](@ref)
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 16
+          registry-url: https://npm.pkg.github.com/
+
+      - name: Publish Package
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ needs.versioning.outputs.new_version }}
+          generate_release_notes: true
