@@ -1,0 +1,15 @@
+{
+  "name": "com.qyy.100000_Test",
+  "version": "1.0.0",
+  "displayName": "100000_Test",
+  "description": "Package description for Unity",
+  "unity": "2022.3.61f1",
+  "author": {
+    "name": "qyy",
+    "email": "452635860@qq.com",
+    "url": "https://github.com/QGame-Packages/100000_Test"
+  },
+  "dependencies": {
+   // "com.unity.some-package": "1.2.3" // 其他依赖包
+  }
+}
